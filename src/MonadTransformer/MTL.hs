@@ -45,6 +45,10 @@ instance (Monad m) => MonadState s (StateT s m) where
 class (Monad m) => MonadReader r m | m -> r where
     ask :: m r
 
+-- Construct a new computation to evaluate the computation in the replaced environment
+local :: Monad m => (r -> r) -> ReaderT r m a -> ReaderT r m a
+local f m = ReaderT $ \r -> runReaderT m (f r)
+
 instance (Monad m) => Monad (ReaderT r m) where
     return a = ReaderT $ \r -> return a
     m >>= f = ReaderT $ \r -> do
@@ -80,7 +84,19 @@ eval :: Exp -> Eval Value
 eval (Lit i) =  do tick
                    return $ IntVal i
 
-eval (Val n) = do env <- ask
+eval (Val n) = do tick
+                  env <- ask
                   case H.lookup n env of
                       Just v -> return v
                       Nothing -> error ("can't find:" ++ n)
+
+eval (Abs n e) = do tick
+                    env <- ask
+                    return $ FunVal env n e
+
+eval (App e1 e2) = do tick
+                      val1 <- eval e1
+                      val2 <- eval e2
+                      case val1 of
+                          FunVal env n body -> local (const (H.insert n val2 env)) (eval body)
+                          _ -> error "type error in application"
